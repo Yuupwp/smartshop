@@ -18,6 +18,39 @@ class SmartShopRepository(context: Context) {
         return db.insertOrThrow("productos", null, values)
     }
 
+    fun obtenerProductos(): List<Map<String, Any>> {
+        val db = dbHelper.readableDatabase
+        val lista = mutableListOf<Map<String, Any>>()
+        db.rawQuery("SELECT * FROM productos", null).use { c ->
+            while (c.moveToNext()) {
+                lista.add(mapOf(
+                    "id" to c.getInt(c.getColumnIndexOrThrow("id")),
+                    "nombre" to c.getString(c.getColumnIndexOrThrow("nombre")),
+                    "precio" to c.getDouble(c.getColumnIndexOrThrow("precio")),
+                    "stock" to c.getInt(c.getColumnIndexOrThrow("stock")),
+                    "stock_minimo" to c.getInt(c.getColumnIndexOrThrow("stock_minimo"))
+                ))
+            }
+        }
+        return lista
+    }
+
+    fun actualizarProducto(id: Int, nombre: String, precio: Double, stock: Int, stockMinimo: Int = 5): Int {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("nombre", nombre)
+            put("precio", precio)
+            put("stock", stock)
+            put("stock_minimo", stockMinimo)
+        }
+        return db.update("productos", values, "id = ?", arrayOf(id.toString()))
+    }
+
+    fun eliminarProducto(id: Int): Int {
+        val db = dbHelper.writableDatabase
+        return db.delete("productos", "id = ?", arrayOf(id.toString()))
+    }
+
     fun contarVentasDelDia(inicioMs: Long, finMs: Long): Int {
         val db = dbHelper.readableDatabase
         db.rawQuery(

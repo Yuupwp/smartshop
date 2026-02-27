@@ -46,7 +46,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ─── Tema ────────────────────────────────────────────────────────────────────
 
 @Composable
 fun SmartShopTheme(content: @Composable () -> Unit) {
@@ -59,7 +58,6 @@ fun SmartShopTheme(content: @Composable () -> Unit) {
     )
 }
 
-// ─── Modelo ──────────────────────────────────────────────────────────────────
 
 data class Producto(
     val id: Int = 0,
@@ -69,7 +67,6 @@ data class Producto(
     val stockMinimo: Int = 5
 )
 
-// ─── Navegación ──────────────────────────────────────────────────────────────
 
 enum class Pantalla { HOME, INVENTARIO }
 
@@ -87,7 +84,6 @@ fun AppNavigation() {
     }
 }
 
-// ─── Pantalla Principal ───────────────────────────────────────────────────────
 
 @Composable
 fun HomeScreen(onVerInventario: () -> Unit) {
@@ -138,7 +134,6 @@ fun HomeScreen(onVerInventario: () -> Unit) {
     }
 }
 
-// ─── Pantalla de Inventario ───────────────────────────────────────────────────
 
 @Composable
 fun InventarioScreen(onBack: () -> Unit) {
@@ -212,7 +207,6 @@ fun InventarioScreen(onBack: () -> Unit) {
         }
     }
 
-    // Diálogo: Agregar producto
     if (mostrarDialogoAgregar) {
         ProductoDialog(
             titulo = "Agregar producto",
@@ -225,7 +219,6 @@ fun InventarioScreen(onBack: () -> Unit) {
         )
     }
 
-    // Diálogo: Editar producto
     productoAEditar?.let { prod ->
         ProductoDialog(
             titulo = "Editar producto",
@@ -239,7 +232,6 @@ fun InventarioScreen(onBack: () -> Unit) {
         )
     }
 
-    // Diálogo: Confirmar eliminación
     productoAEliminar?.let { prod ->
         AlertDialog(
             onDismissRequest = { productoAEliminar = null },
@@ -261,7 +253,6 @@ fun InventarioScreen(onBack: () -> Unit) {
     }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fun cargarProductos(repo: SmartShopRepository): List<Producto> =
     repo.obtenerProductos().map {
@@ -274,7 +265,6 @@ fun cargarProductos(repo: SmartShopRepository): List<Producto> =
         )
     }
 
-// ─── Componentes ─────────────────────────────────────────────────────────────
 
 @Composable
 fun ProductoCard(
@@ -419,7 +409,6 @@ fun ProductoDialog(
     }
 }
 
-// ─── Secciones del Home ───────────────────────────────────────────────────────
 
 @Composable
 fun HeaderSection() {

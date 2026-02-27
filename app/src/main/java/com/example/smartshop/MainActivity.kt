@@ -5,21 +5,28 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.example.smartshop.database.SmartShopRepository
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -32,12 +39,14 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    HomeScreen()
+                    AppNavigation()
                 }
             }
         }
     }
 }
+
+// ─── Tema ────────────────────────────────────────────────────────────────────
 
 @Composable
 fun SmartShopTheme(content: @Composable () -> Unit) {
@@ -50,15 +59,64 @@ fun SmartShopTheme(content: @Composable () -> Unit) {
     )
 }
 
+// ─── Modelo ──────────────────────────────────────────────────────────────────
+
 data class Producto(
+    val id: Int = 0,
     val nombre: String,
-    val stock: Int
+    val precio: Double,
+    val stock: Int,
+    val stockMinimo: Int = 5
 )
 
-@Composable
-fun HomeScreen() {
-    val scrollState = rememberScrollState()
+// ─── Navegación ──────────────────────────────────────────────────────────────
 
+enum class Pantalla { HOME, INVENTARIO }
+
+@Composable
+fun AppNavigation() {
+    var pantallaActual by remember { mutableStateOf(Pantalla.HOME) }
+
+    when (pantallaActual) {
+        Pantalla.HOME -> HomeScreen(
+            onVerInventario = { pantallaActual = Pantalla.INVENTARIO }
+        )
+        Pantalla.INVENTARIO -> InventarioScreen(
+            onBack = { pantallaActual = Pantalla.HOME }
+        )
+    }
+}
+
+// ─── Pantalla Principal ───────────────────────────────────────────────────────
+
+@Composable
+fun HomeScreen(onVerInventario: () -> Unit) {
+    val context = LocalContext.current
+    val repo = remember { SmartShopRepository(context) }
+
+    val calendar = Calendar.getInstance()
+    calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0)
+    calendar.set(Calendar.SECOND, 0); calendar.set(Calendar.MILLISECOND, 0)
+    val inicioDia = calendar.timeInMillis
+    val finDia = inicioDia + 86_400_000L
+
+    val totalVentas by remember { mutableStateOf(repo.totalVentasDelDia(inicioDia, finDia)) }
+    val cantVentas by remember { mutableStateOf(repo.contarVentasDelDia(inicioDia, finDia)) }
+    val productosConPocoStock by remember {
+        mutableStateOf(
+            repo.obtenerProductos()
+                .filter { (it["stock"] as Int) <= (it["stock_minimo"] as Int) }
+                .map { Producto(
+                    id = it["id"] as Int,
+                    nombre = it["nombre"] as String,
+                    precio = it["precio"] as Double,
+                    stock = it["stock"] as Int,
+                    stockMinimo = it["stock_minimo"] as Int
+                )}
+        )
+    }
+
+    val scrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -66,32 +124,307 @@ fun HomeScreen() {
             .background(Color(0xFFF5F5F5))
     ) {
         HeaderSection()
-
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp)
-        ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             Spacer(modifier = Modifier.height(24.dp))
-
-            SummarySection()
-
+            SummarySection(total = totalVentas, cantidad = cantVentas)
             Spacer(modifier = Modifier.height(24.dp))
-
-            LowStockSection()
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            QuickActionsSection()
-
+            if (productosConPocoStock.isNotEmpty()) {
+                LowStockSection(productos = productosConPocoStock)
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+            QuickActionsSection(onVerInventario = onVerInventario)
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
+// ─── Pantalla de Inventario ───────────────────────────────────────────────────
+
+@Composable
+fun InventarioScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val repo = remember { SmartShopRepository(context) }
+
+    var productos by remember { mutableStateOf(cargarProductos(repo)) }
+    var mostrarDialogoAgregar by remember { mutableStateOf(false) }
+    var productoAEditar by remember { mutableStateOf<Producto?>(null) }
+    var productoAEliminar by remember { mutableStateOf<Producto?>(null) }
+
+    Scaffold(
+        topBar = {
+            @OptIn(ExperimentalMaterial3Api::class)
+            TopAppBar(
+                title = { Text("Inventario", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Regresar")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF2962FF),
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { mostrarDialogoAgregar = true },
+                containerColor = Color(0xFF2962FF)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Agregar", tint = Color.White)
+            }
+        }
+    ) { paddingValues ->
+
+        if (productos.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.ShoppingCart, contentDescription = null,
+                        modifier = Modifier.size(64.dp), tint = Color(0xFFBBBBBB))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Sin productos aún", color = Color(0xFF888888), fontSize = 16.sp)
+                    Text("Presiona + para agregar uno", color = Color(0xFFAAAAAA), fontSize = 14.sp)
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 16.dp)
+            ) {
+                items(productos, key = { it.id }) { producto ->
+                    ProductoCard(
+                        producto = producto,
+                        onEditar = { productoAEditar = producto },
+                        onEliminar = { productoAEliminar = producto }
+                    )
+                }
+            }
+        }
+    }
+
+    // Diálogo: Agregar producto
+    if (mostrarDialogoAgregar) {
+        ProductoDialog(
+            titulo = "Agregar producto",
+            onDismiss = { mostrarDialogoAgregar = false },
+            onConfirmar = { nombre, precio, stock, stockMin ->
+                repo.insertarProducto(nombre, precio, stock, stockMin)
+                productos = cargarProductos(repo)
+                mostrarDialogoAgregar = false
+            }
+        )
+    }
+
+    // Diálogo: Editar producto
+    productoAEditar?.let { prod ->
+        ProductoDialog(
+            titulo = "Editar producto",
+            productoExistente = prod,
+            onDismiss = { productoAEditar = null },
+            onConfirmar = { nombre, precio, stock, stockMin ->
+                repo.actualizarProducto(prod.id, nombre, precio, stock, stockMin)
+                productos = cargarProductos(repo)
+                productoAEditar = null
+            }
+        )
+    }
+
+    // Diálogo: Confirmar eliminación
+    productoAEliminar?.let { prod ->
+        AlertDialog(
+            onDismissRequest = { productoAEliminar = null },
+            title = { Text("Eliminar producto") },
+            text = { Text("¿Deseas eliminar \"${prod.nombre}\"? Esta acción no se puede deshacer.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        repo.eliminarProducto(prod.id)
+                        productos = cargarProductos(repo)
+                        productoAEliminar = null
+                    }
+                ) { Text("Eliminar", color = Color.Red) }
+            },
+            dismissButton = {
+                TextButton(onClick = { productoAEliminar = null }) { Text("Cancelar") }
+            }
+        )
+    }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fun cargarProductos(repo: SmartShopRepository): List<Producto> =
+    repo.obtenerProductos().map {
+        Producto(
+            id = it["id"] as Int,
+            nombre = it["nombre"] as String,
+            precio = it["precio"] as Double,
+            stock = it["stock"] as Int,
+            stockMinimo = it["stock_minimo"] as Int
+        )
+    }
+
+// ─── Componentes ─────────────────────────────────────────────────────────────
+
+@Composable
+fun ProductoCard(
+    producto: Producto,
+    onEditar: () -> Unit,
+    onEliminar: () -> Unit
+) {
+    val stockBajo = producto.stock <= producto.stockMinimo
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(producto.nombre, fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp, color = Color(0xFF333333))
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("$${String.format("%.2f", producto.precio)}",
+                    fontSize = 15.sp, color = Color(0xFF2962FF), fontWeight = FontWeight.Medium)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Stock: ${producto.stock} unidades",
+                    fontSize = 13.sp,
+                    color = if (stockBajo) Color(0xFFFF9800) else Color(0xFF666666),
+                    fontWeight = if (stockBajo) FontWeight.Medium else FontWeight.Normal
+                )
+            }
+            Row {
+                IconButton(onClick = onEditar) {
+                    Icon(Icons.Default.Edit, contentDescription = "Editar",
+                        tint = Color(0xFF2962FF))
+                }
+                IconButton(onClick = onEliminar) {
+                    Icon(Icons.Default.Delete, contentDescription = "Eliminar",
+                        tint = Color(0xFFE53935))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProductoDialog(
+    titulo: String,
+    productoExistente: Producto? = null,
+    onDismiss: () -> Unit,
+    onConfirmar: (String, Double, Int, Int) -> Unit
+) {
+    var nombre by remember { mutableStateOf(productoExistente?.nombre ?: "") }
+    var precio by remember { mutableStateOf(productoExistente?.precio?.toString() ?: "") }
+    var stock by remember { mutableStateOf(productoExistente?.stock?.toString() ?: "") }
+    var stockMin by remember { mutableStateOf(productoExistente?.stockMinimo?.toString() ?: "5") }
+    var error by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text(titulo, fontWeight = FontWeight.Bold, fontSize = 20.sp,
+                    color = Color(0xFF333333))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = nombre,
+                    onValueChange = { nombre = it },
+                    label = { Text("Nombre del producto") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = precio,
+                    onValueChange = { precio = it },
+                    label = { Text("Precio ($)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = stock,
+                    onValueChange = { stock = it },
+                    label = { Text("Stock actual") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = stockMin,
+                    onValueChange = { stockMin = it },
+                    label = { Text("Stock mínimo") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                if (error.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(error, color = Color.Red, fontSize = 13.sp)
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancelar") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val precioVal = precio.toDoubleOrNull()
+                            val stockVal = stock.toIntOrNull()
+                            val stockMinVal = stockMin.toIntOrNull()
+                            when {
+                                nombre.isBlank() -> error = "El nombre es obligatorio"
+                                precioVal == null || precioVal < 0 -> error = "Precio inválido"
+                                stockVal == null || stockVal < 0 -> error = "Stock inválido"
+                                stockMinVal == null || stockMinVal < 0 -> error = "Stock mínimo inválido"
+                                else -> onConfirmar(nombre.trim(), precioVal, stockVal, stockMinVal)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2962FF))
+                    ) { Text("Guardar") }
+                }
+            }
+        }
+    }
+}
+
+// ─── Secciones del Home ───────────────────────────────────────────────────────
+
 @Composable
 fun HeaderSection() {
     val dateFormat = SimpleDateFormat("EEEE, d 'de' MMMM 'de' yyyy", Locale("es", "ES"))
     val currentDate = dateFormat.format(Date())
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -102,44 +435,21 @@ fun HeaderSection() {
             .padding(24.dp)
     ) {
         Column {
-            Text(
-                text = "SmartShop",
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-
+            Text("SmartShop", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "Gestión de negocio",
-                fontSize = 16.sp,
-                color = Color.White.copy(alpha = 0.9f)
-            )
-
+            Text("Gestión de negocio", fontSize = 16.sp, color = Color.White.copy(alpha = 0.9f))
             Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = currentDate,
-                fontSize = 14.sp,
-                color = Color.White.copy(alpha = 0.8f)
-            )
+            Text(currentDate, fontSize = 14.sp, color = Color.White.copy(alpha = 0.8f))
         }
     }
 }
 
 @Composable
-fun SummarySection() {
+fun SummarySection(total: Double, cantidad: Int) {
     Column {
-        Text(
-            text = "Resumen del día",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF333333)
-        )
-
+        Text("Resumen del día", fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF333333))
         Spacer(modifier = Modifier.height(12.dp))
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -148,15 +458,14 @@ fun SummarySection() {
                 modifier = Modifier.weight(1f),
                 icon = Icons.Default.Star,
                 iconColor = Color(0xFF4CAF50),
-                value = "$0",
+                value = "$${"%.2f".format(total)}",
                 label = "Ventas totales"
             )
-
             SummaryCard(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Default.ShoppingCart,
                 iconColor = Color(0xFF2962FF),
-                value = "0",
+                value = "$cantidad",
                 label = "Ventas realizadas"
             )
         }
@@ -177,43 +486,21 @@ fun SummaryCard(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconColor,
-                modifier = Modifier.size(32.dp)
-            )
-
+        Column(modifier = Modifier.padding(16.dp)) {
+            Icon(imageVector = icon, contentDescription = null,
+                tint = iconColor, modifier = Modifier.size(32.dp))
             Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = value,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF333333)
-            )
-
+            Text(value, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
             Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = label,
-                fontSize = 14.sp,
-                color = Color(0xFF666666)
-            )
+            Text(label, fontSize = 14.sp, color = Color(0xFF666666))
         }
     }
 }
 
 @Composable
-fun LowStockSection() {
-    val productos = listOf(
-        Producto("Pan Blanco", 8),
-        Producto("Leche Lala 1L", 15),
-        Producto("Arroz 1kg", 5)
-    )
+fun LowStockSection(productos: List<Producto>) {
+    val visibles = productos.take(3)
+    val extras = productos.size - visibles.size
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -221,126 +508,85 @@ fun LowStockSection() {
         colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF4E6)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
                     .width(6.dp)
                     .height(IntrinsicSize.Min)
                     .background(Color(0xFFFF9800))
             )
-
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = Color(0xFFFF9800),
-                        modifier = Modifier.size(24.dp)
-                    )
-
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null,
+                        tint = Color(0xFFFF9800), modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-
-                    Text(
-                        text = "Inventario bajo",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF333333)
-                    )
+                    Text("Inventario bajo", fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold, color = Color(0xFF333333))
                 }
-
                 Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "4 productos con poco stock",
-                    fontSize = 14.sp,
-                    color = Color(0xFF666666)
-                )
-
+                Text("${productos.size} producto${if (productos.size != 1) "s" else ""} con poco stock",
+                    fontSize = 14.sp, color = Color(0xFF666666))
                 Spacer(modifier = Modifier.height(16.dp))
-
-                productos.forEach { producto ->
+                visibles.forEach { producto ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = producto.nombre,
-                            fontSize = 14.sp,
-                            color = Color(0xFF333333)
-                        )
-                        Text(
-                            text = "${producto.stock} unidades",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFFFF9800)
-                        )
+                        Text(producto.nombre, fontSize = 14.sp, color = Color(0xFF333333))
+                        Text("${producto.stock} unidades", fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium, color = Color(0xFFFF9800))
                     }
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "+1 más",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF2962FF)
-                )
+                if (extras > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("+$extras más", fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium, color = Color(0xFF2962FF))
+                }
             }
         }
     }
 }
 
 @Composable
-fun QuickActionsSection() {
+fun QuickActionsSection(onVerInventario: () -> Unit) {
     Column {
-        Text(
-            text = "Acciones rápidas",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF333333)
-        )
-
+        Text("Acciones rápidas", fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF333333))
         Spacer(modifier = Modifier.height(12.dp))
-
         ActionButton(
             title = "Registrar venta",
             subtitle = "Nueva transacción",
             icon = Icons.Default.ShoppingCart,
             backgroundColor = Color(0xFF2962FF),
             contentColor = Color.White,
-            showArrow = true
+            showArrow = true,
+            onClick = {}
         )
-
         Spacer(modifier = Modifier.height(12.dp))
-
         ActionButton(
             title = "Ver inventario",
-            subtitle = "8 productos",
+            subtitle = "Gestiona tus productos",
             icon = Icons.Default.Home,
             backgroundColor = Color.White,
             contentColor = Color(0xFF9C27B0),
-            showArrow = false
+            showArrow = true,
+            onClick = onVerInventario
         )
-
         Spacer(modifier = Modifier.height(12.dp))
-
         ActionButton(
             title = "Reportes",
             subtitle = "Análisis de ventas",
             icon = Icons.Default.Info,
             backgroundColor = Color.White,
             contentColor = Color(0xFF4CAF50),
-            showArrow = false
+            showArrow = false,
+            onClick = {}
         )
     }
 }
@@ -352,13 +598,15 @@ fun ActionButton(
     icon: ImageVector,
     backgroundColor: Color,
     contentColor: Color,
-    showArrow: Boolean
+    showArrow: Boolean,
+    onClick: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = backgroundColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        onClick = onClick
     ) {
         Row(
             modifier = Modifier
@@ -366,41 +614,23 @@ fun ActionButton(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.size(40.dp)
-            )
-
+            Icon(imageVector = icon, contentDescription = null,
+                tint = contentColor, modifier = Modifier.size(40.dp))
             Spacer(modifier = Modifier.width(16.dp))
-
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    text = title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                     color = if (backgroundColor == Color.White) Color(0xFF333333) else contentColor
                 )
-
                 Spacer(modifier = Modifier.height(4.dp))
-
                 Text(
-                    text = subtitle,
-                    fontSize = 14.sp,
+                    text = subtitle, fontSize = 14.sp,
                     color = if (backgroundColor == Color.White) Color(0xFF666666) else contentColor.copy(alpha = 0.8f)
                 )
             }
-
             if (showArrow) {
-                Icon(
-                    imageVector = Icons.Default.ArrowForward,
-                    contentDescription = null,
-                    tint = contentColor,
-                    modifier = Modifier.size(24.dp)
-                )
+                Icon(Icons.Default.ArrowForward, contentDescription = null,
+                    tint = contentColor, modifier = Modifier.size(24.dp))
             }
         }
     }
@@ -410,6 +640,6 @@ fun ActionButton(
 @Composable
 fun HomeScreenPreview() {
     SmartShopTheme {
-        HomeScreen()
+        HomeScreen(onVerInventario = {})
     }
 }

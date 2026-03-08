@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -73,16 +74,23 @@ enum class Pantalla { HOME, INVENTARIO }
 @Composable
 fun AppNavigation() {
     var pantallaActual by remember { mutableStateOf(Pantalla.HOME) }
-
     when (pantallaActual) {
-        Pantalla.HOME -> HomeScreen(
-            onVerInventario = { pantallaActual = Pantalla.INVENTARIO }
-        )
-        Pantalla.INVENTARIO -> InventarioScreen(
-            onBack = { pantallaActual = Pantalla.HOME }
-        )
+        Pantalla.HOME -> HomeScreen(onVerInventario = { pantallaActual = Pantalla.INVENTARIO })
+        Pantalla.INVENTARIO -> InventarioScreen(onBack = { pantallaActual = Pantalla.HOME })
     }
 }
+
+
+fun cargarProductos(repo: SmartShopRepository): List<Producto> =
+    repo.obtenerProductos().map {
+        Producto(
+            id = it["id"] as Int,
+            nombre = it["nombre"] as String,
+            precio = it["precio"] as Double,
+            stock = it["stock"] as Int,
+            stockMinimo = it["stock_minimo"] as Int
+        )
+    }
 
 
 @Composable
@@ -90,9 +98,10 @@ fun HomeScreen(onVerInventario: () -> Unit) {
     val context = LocalContext.current
     val repo = remember { SmartShopRepository(context) }
 
-    val calendar = Calendar.getInstance()
-    calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0)
-    calendar.set(Calendar.SECOND, 0); calendar.set(Calendar.MILLISECOND, 0)
+    val calendar = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }
     val inicioDia = calendar.timeInMillis
     val finDia = inicioDia + 86_400_000L
 
@@ -102,13 +111,15 @@ fun HomeScreen(onVerInventario: () -> Unit) {
         mutableStateOf(
             repo.obtenerProductos()
                 .filter { (it["stock"] as Int) <= (it["stock_minimo"] as Int) }
-                .map { Producto(
-                    id = it["id"] as Int,
-                    nombre = it["nombre"] as String,
-                    precio = it["precio"] as Double,
-                    stock = it["stock"] as Int,
-                    stockMinimo = it["stock_minimo"] as Int
-                )}
+                .map {
+                    Producto(
+                        id = it["id"] as Int,
+                        nombre = it["nombre"] as String,
+                        precio = it["precio"] as Double,
+                        stock = it["stock"] as Int,
+                        stockMinimo = it["stock_minimo"] as Int
+                    )
+                }
         )
     }
 
@@ -140,10 +151,16 @@ fun InventarioScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val repo = remember { SmartShopRepository(context) }
 
-    var productos by remember { mutableStateOf(cargarProductos(repo)) }
+    var todosLosProductos by remember { mutableStateOf(cargarProductos(repo)) }
+    var busqueda by remember { mutableStateOf("") }
     var mostrarDialogoAgregar by remember { mutableStateOf(false) }
     var productoAEditar by remember { mutableStateOf<Producto?>(null) }
     var productoAEliminar by remember { mutableStateOf<Producto?>(null) }
+
+    val productosFiltrados = remember(todosLosProductos, busqueda) {
+        if (busqueda.isBlank()) todosLosProductos
+        else todosLosProductos.filter { it.nombre.contains(busqueda, ignoreCase = true) }
+    }
 
     Scaffold(
         topBar = {
@@ -156,52 +173,94 @@ fun InventarioScreen(onBack: () -> Unit) {
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF2962FF),
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
+                    containerColor = Color.White,
+                    titleContentColor = Color(0xFF333333),
+                    navigationIconContentColor = Color(0xFF333333)
                 )
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { mostrarDialogoAgregar = true },
-                containerColor = Color(0xFF2962FF)
+                containerColor = Color(0xFF2962FF),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Agregar", tint = Color.White)
             }
-        }
+        },
+        containerColor = Color(0xFFF5F5F5)
     ) { paddingValues ->
 
-        if (productos.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.ShoppingCart, contentDescription = null,
-                        modifier = Modifier.size(64.dp), tint = Color(0xFFBBBBBB))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Sin productos aún", color = Color(0xFF888888), fontSize = 16.sp)
-                    Text("Presiona + para agregar uno", color = Color(0xFFAAAAAA), fontSize = 14.sp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp)
+        ) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = busqueda,
+                onValueChange = { busqueda = it },
+                placeholder = { Text("Buscar producto...", color = Color(0xFFAAAAAA)) },
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFFAAAAAA))
+                },
+                trailingIcon = {
+                    if (busqueda.isNotEmpty()) {
+                        IconButton(onClick = { busqueda = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Limpiar", tint = Color(0xFFAAAAAA))
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = Color(0xFF2962FF),
+                    unfocusedContainerColor = Color.White,
+                    focusedContainerColor = Color.White
+                ),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = "${productosFiltrados.size} producto${if (productosFiltrados.size != 1) "s" else ""}",
+                fontSize = 14.sp,
+                color = Color(0xFF888888)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (productosFiltrados.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.ShoppingCart, contentDescription = null,
+                            modifier = Modifier.size(64.dp), tint = Color(0xFFBBBBBB))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (busqueda.isBlank()) "Sin productos aún" else "Sin resultados para \"$busqueda\"",
+                            color = Color(0xFF888888), fontSize = 16.sp
+                        )
+                        if (busqueda.isBlank()) {
+                            Text("Presiona + para agregar uno", color = Color(0xFFAAAAAA), fontSize = 14.sp)
+                        }
+                    }
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
-            ) {
-                items(productos, key = { it.id }) { producto ->
-                    ProductoCard(
-                        producto = producto,
-                        onEditar = { productoAEditar = producto },
-                        onEliminar = { productoAEliminar = producto }
-                    )
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    items(productosFiltrados, key = { it.id }) { producto ->
+                        ProductoCard(
+                            producto = producto,
+                            onEditar = { productoAEditar = producto },
+                            onEliminar = { productoAEliminar = producto }
+                        )
+                    }
                 }
             }
         }
@@ -213,7 +272,7 @@ fun InventarioScreen(onBack: () -> Unit) {
             onDismiss = { mostrarDialogoAgregar = false },
             onConfirmar = { nombre, precio, stock, stockMin ->
                 repo.insertarProducto(nombre, precio, stock, stockMin)
-                productos = cargarProductos(repo)
+                todosLosProductos = cargarProductos(repo)
                 mostrarDialogoAgregar = false
             }
         )
@@ -226,7 +285,7 @@ fun InventarioScreen(onBack: () -> Unit) {
             onDismiss = { productoAEditar = null },
             onConfirmar = { nombre, precio, stock, stockMin ->
                 repo.actualizarProducto(prod.id, nombre, precio, stock, stockMin)
-                productos = cargarProductos(repo)
+                todosLosProductos = cargarProductos(repo)
                 productoAEditar = null
             }
         )
@@ -238,13 +297,11 @@ fun InventarioScreen(onBack: () -> Unit) {
             title = { Text("Eliminar producto") },
             text = { Text("¿Deseas eliminar \"${prod.nombre}\"? Esta acción no se puede deshacer.") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        repo.eliminarProducto(prod.id)
-                        productos = cargarProductos(repo)
-                        productoAEliminar = null
-                    }
-                ) { Text("Eliminar", color = Color.Red) }
+                TextButton(onClick = {
+                    repo.eliminarProducto(prod.id)
+                    todosLosProductos = cargarProductos(repo)
+                    productoAEliminar = null
+                }) { Text("Eliminar", color = Color.Red) }
             },
             dismissButton = {
                 TextButton(onClick = { productoAEliminar = null }) { Text("Cancelar") }
@@ -254,18 +311,6 @@ fun InventarioScreen(onBack: () -> Unit) {
 }
 
 
-fun cargarProductos(repo: SmartShopRepository): List<Producto> =
-    repo.obtenerProductos().map {
-        Producto(
-            id = it["id"] as Int,
-            nombre = it["nombre"] as String,
-            precio = it["precio"] as Double,
-            stock = it["stock"] as Int,
-            stockMinimo = it["stock_minimo"] as Int
-        )
-    }
-
-
 @Composable
 fun ProductoCard(
     producto: Producto,
@@ -273,45 +318,104 @@ fun ProductoCard(
     onEliminar: () -> Unit
 ) {
     val stockBajo = producto.stock <= producto.stockMinimo
+
+    val (badgeBackground, badgeText) = when {
+        producto.stock == 0 -> Color(0xFFFFE0E0) to Color(0xFFE53935)
+        stockBajo           -> Color(0xFFFFF3CD) to Color(0xFFFF8F00)
+        else                -> Color(0xFFE8F5E9) to Color(0xFF2E7D32)
+    }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = if (stockBajo) 1.5.dp else 0.dp,
+                color = if (stockBajo) Color(0xFFFFCC02) else Color.Transparent,
+                shape = RoundedCornerShape(14.dp)
+            ),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (stockBajo) 0.dp else 2.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(producto.nombre, fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp, color = Color(0xFF333333))
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("$${String.format("%.2f", producto.precio)}",
-                    fontSize = 15.sp, color = Color(0xFF2962FF), fontWeight = FontWeight.Medium)
-                Spacer(modifier = Modifier.height(4.dp))
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "Stock: ${producto.stock} unidades",
-                    fontSize = 13.sp,
-                    color = if (stockBajo) Color(0xFFFF9800) else Color(0xFF666666),
-                    fontWeight = if (stockBajo) FontWeight.Medium else FontWeight.Normal
+                    text = producto.nombre,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = Color(0xFF222222),
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onEditar, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "Editar",
+                        tint = Color(0xFF888888), modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onEliminar, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Eliminar",
+                        tint = Color(0xFFE53935), modifier = Modifier.size(20.dp))
+                }
+            }
+
+            Text(
+                text = "$${"%.2f".format(producto.precio)}",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF2962FF)
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("⠿", fontSize = 12.sp, color = Color(0xFFBBBBBB))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "ID-${producto.id.toString().padStart(10, '0')}",
+                    fontSize = 12.sp,
+                    color = Color(0xFFAAAAAA)
                 )
             }
-            Row {
-                IconButton(onClick = onEditar) {
-                    Icon(Icons.Default.Edit, contentDescription = "Editar",
-                        tint = Color(0xFF2962FF))
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Stock:", fontSize = 14.sp, color = Color(0xFF666666))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(badgeBackground, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "${producto.stock} unidades",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = badgeText
+                        )
+                    }
                 }
-                IconButton(onClick = onEliminar) {
-                    Icon(Icons.Default.Delete, contentDescription = "Eliminar",
-                        tint = Color(0xFFE53935))
+                if (stockBajo) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warning, contentDescription = null,
+                            tint = Color(0xFFFF8F00), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Bajo", fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium, color = Color(0xFFFF8F00))
+                    }
                 }
             }
         }
     }
 }
+
 
 @Composable
 fun ProductoDialog(
@@ -333,22 +437,18 @@ fun ProductoDialog(
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
-                Text(titulo, fontWeight = FontWeight.Bold, fontSize = 20.sp,
-                    color = Color(0xFF333333))
+                Text(titulo, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color(0xFF333333))
                 Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedTextField(
-                    value = nombre,
-                    onValueChange = { nombre = it },
+                    value = nombre, onValueChange = { nombre = it },
                     label = { Text("Nombre del producto") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    modifier = Modifier.fillMaxWidth(), singleLine = true
                 )
                 Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedTextField(
-                    value = precio,
-                    onValueChange = { precio = it },
+                    value = precio, onValueChange = { precio = it },
                     label = { Text("Precio ($)") },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -357,8 +457,7 @@ fun ProductoDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedTextField(
-                    value = stock,
-                    onValueChange = { stock = it },
+                    value = stock, onValueChange = { stock = it },
                     label = { Text("Stock actual") },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -367,8 +466,7 @@ fun ProductoDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedTextField(
-                    value = stockMin,
-                    onValueChange = { stockMin = it },
+                    value = stockMin, onValueChange = { stockMin = it },
                     label = { Text("Stock mínimo") },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -382,10 +480,7 @@ fun ProductoDialog(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Cancelar") }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
@@ -443,20 +538,12 @@ fun SummarySection(total: Double, cantidad: Int) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            SummaryCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Star,
-                iconColor = Color(0xFF4CAF50),
-                value = "$${"%.2f".format(total)}",
-                label = "Ventas totales"
-            )
-            SummaryCard(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.ShoppingCart,
-                iconColor = Color(0xFF2962FF),
-                value = "$cantidad",
-                label = "Ventas realizadas"
-            )
+            SummaryCard(modifier = Modifier.weight(1f), icon = Icons.Default.Star,
+                iconColor = Color(0xFF4CAF50), value = "$${"%.2f".format(total)}",
+                label = "Ventas totales")
+            SummaryCard(modifier = Modifier.weight(1f), icon = Icons.Default.ShoppingCart,
+                iconColor = Color(0xFF2962FF), value = "$cantidad",
+                label = "Ventas realizadas")
         }
     }
 }
@@ -490,7 +577,6 @@ fun SummaryCard(
 fun LowStockSection(productos: List<Producto>) {
     val visibles = productos.take(3)
     val extras = productos.size - visibles.size
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -517,8 +603,10 @@ fun LowStockSection(productos: List<Producto>) {
                         fontWeight = FontWeight.SemiBold, color = Color(0xFF333333))
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("${productos.size} producto${if (productos.size != 1) "s" else ""} con poco stock",
-                    fontSize = 14.sp, color = Color(0xFF666666))
+                Text(
+                    "${productos.size} producto${if (productos.size != 1) "s" else ""} con poco stock",
+                    fontSize = 14.sp, color = Color(0xFF666666)
+                )
                 Spacer(modifier = Modifier.height(16.dp))
                 visibles.forEach { producto ->
                     Row(
@@ -549,33 +637,21 @@ fun QuickActionsSection(onVerInventario: () -> Unit) {
             color = Color(0xFF333333))
         Spacer(modifier = Modifier.height(12.dp))
         ActionButton(
-            title = "Registrar venta",
-            subtitle = "Nueva transacción",
-            icon = Icons.Default.ShoppingCart,
-            backgroundColor = Color(0xFF2962FF),
-            contentColor = Color.White,
-            showArrow = true,
-            onClick = {}
+            title = "Registrar venta", subtitle = "Nueva transacción",
+            icon = Icons.Default.ShoppingCart, backgroundColor = Color(0xFF2962FF),
+            contentColor = Color.White, showArrow = true, onClick = {}
         )
         Spacer(modifier = Modifier.height(12.dp))
         ActionButton(
-            title = "Ver inventario",
-            subtitle = "Gestiona tus productos",
-            icon = Icons.Default.Home,
-            backgroundColor = Color.White,
-            contentColor = Color(0xFF9C27B0),
-            showArrow = true,
-            onClick = onVerInventario
+            title = "Ver inventario", subtitle = "Gestiona tus productos",
+            icon = Icons.Default.Home, backgroundColor = Color.White,
+            contentColor = Color(0xFF9C27B0), showArrow = true, onClick = onVerInventario
         )
         Spacer(modifier = Modifier.height(12.dp))
         ActionButton(
-            title = "Reportes",
-            subtitle = "Análisis de ventas",
-            icon = Icons.Default.Info,
-            backgroundColor = Color.White,
-            contentColor = Color(0xFF4CAF50),
-            showArrow = false,
-            onClick = {}
+            title = "Reportes", subtitle = "Análisis de ventas",
+            icon = Icons.Default.Info, backgroundColor = Color.White,
+            contentColor = Color(0xFF4CAF50), showArrow = false, onClick = {}
         )
     }
 }

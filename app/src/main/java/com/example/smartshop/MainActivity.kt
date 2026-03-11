@@ -68,7 +68,7 @@ data class Producto(
 )
 
 
-enum class Pantalla { HOME, INVENTARIO }
+enum class Pantalla { HOME, INVENTARIO, VENTA }
 
 @Composable
 fun AppNavigation() {
@@ -76,9 +76,13 @@ fun AppNavigation() {
 
     when (pantallaActual) {
         Pantalla.HOME -> HomeScreen(
-            onVerInventario = { pantallaActual = Pantalla.INVENTARIO }
+            onVerInventario = { pantallaActual = Pantalla.INVENTARIO },
+            onRegistrarVenta = { pantallaActual = Pantalla.VENTA }
         )
         Pantalla.INVENTARIO -> InventarioScreen(
+            onBack = { pantallaActual = Pantalla.HOME }
+        )
+        Pantalla.VENTA -> NuevaVentaScreen(
             onBack = { pantallaActual = Pantalla.HOME }
         )
     }
@@ -86,7 +90,10 @@ fun AppNavigation() {
 
 
 @Composable
-fun HomeScreen(onVerInventario: () -> Unit) {
+fun HomeScreen(
+    onVerInventario: () -> Unit,
+    onRegistrarVenta: () -> Unit
+) {
     val context = LocalContext.current
     val repo = remember { SmartShopRepository(context) }
 
@@ -128,7 +135,10 @@ fun HomeScreen(onVerInventario: () -> Unit) {
                 LowStockSection(productos = productosConPocoStock)
                 Spacer(modifier = Modifier.height(24.dp))
             }
-            QuickActionsSection(onVerInventario = onVerInventario)
+            QuickActionsSection(
+                onVerInventario = onVerInventario,
+                onRegistrarVenta = onRegistrarVenta
+            )
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -543,7 +553,10 @@ fun LowStockSection(productos: List<Producto>) {
 }
 
 @Composable
-fun QuickActionsSection(onVerInventario: () -> Unit) {
+fun QuickActionsSection(
+    onVerInventario: () -> Unit,
+    onRegistrarVenta: () -> Unit
+) {
     Column {
         Text("Acciones rápidas", fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
             color = Color(0xFF333333))
@@ -555,7 +568,7 @@ fun QuickActionsSection(onVerInventario: () -> Unit) {
             backgroundColor = Color(0xFF2962FF),
             contentColor = Color.White,
             showArrow = true,
-            onClick = {}
+            onClick = onRegistrarVenta
         )
         Spacer(modifier = Modifier.height(12.dp))
         ActionButton(
@@ -629,6 +642,8 @@ fun ActionButton(
 @Composable
 fun HomeScreenPreview() {
     SmartShopTheme {
-        HomeScreen(onVerInventario = {})
+        HomeScreen(onVerInventario = {},
+            onRegistrarVenta = {}
+        )
     }
 }

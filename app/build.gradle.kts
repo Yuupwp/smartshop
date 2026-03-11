@@ -36,6 +36,16 @@ android {
 }
 
 dependencies {
+
+    //Agrgado por Alejandro
+    implementation("androidx.camera:camera-core:1.3.3")
+    implementation("androidx.camera:camera-camera2:1.3.3")
+    implementation("androidx.camera:camera-lifecycle:1.3.3")
+    implementation("androidx.camera:camera-view:1.3.3")
+    implementation("com.google.accompanist:accompanist-permissions:0.34.0")
+    implementation(libs.androidx.compose.icons.extended)
+
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -44,6 +54,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.icons.extended)
     // esta linea permite que funcione el escanear de codigos de barras
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     testImplementation(libs.junit)

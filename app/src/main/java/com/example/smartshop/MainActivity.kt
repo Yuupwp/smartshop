@@ -79,7 +79,9 @@ data class Producto(
 )
 
 
-enum class Pantalla { HOME, INVENTARIO, AGREGAR_PRODUCTO, REPORTES }
+enum class Pantalla {
+    HOME, INVENTARIO, VENTA, AGREGAR_PRODUCTO, REPORTES
+}
 
 @Composable
 fun AppNavigation() {
@@ -87,9 +89,10 @@ fun AppNavigation() {
 
     when (pantallaActual) {
         Pantalla.HOME -> HomeScreen(
-            onVerInventario = { pantallaActual = Pantalla.INVENTARIO },
-            onVerReportes = { pantallaActual = Pantalla.REPORTES }
-        )
+    onVerInventario = { pantallaActual = Pantalla.INVENTARIO },
+    onRegistrarVenta = { pantallaActual = Pantalla.VENTA },
+    onVerReportes = { pantallaActual = Pantalla.REPORTES }
+)
         Pantalla.INVENTARIO -> InventarioScreen(
             onBack = { pantallaActual = Pantalla.HOME },
             onAgregarProducto = { pantallaActual = Pantalla.AGREGAR_PRODUCTO }
@@ -100,12 +103,19 @@ fun AppNavigation() {
         Pantalla.REPORTES -> ReportesScreen(
             onBack = { pantallaActual = Pantalla.HOME }
         )
+        Pantalla.VENTA -> NuevaVentaScreen(
+            onBack = { pantallaActual = Pantalla.HOME }
+        )
     }
 }
 
 
 @Composable
-fun HomeScreen(onVerInventario: () -> Unit, onVerReportes: () -> Unit) {
+fun HomeScreen(
+    onVerInventario: () -> Unit,
+    onRegistrarVenta: () -> Unit,
+    onVerReportes: () -> Unit
+) {
     val context = LocalContext.current
     val repo = remember { SmartShopRepository(context) }
 
@@ -147,7 +157,11 @@ fun HomeScreen(onVerInventario: () -> Unit, onVerReportes: () -> Unit) {
                 LowStockSection(productos = productosConPocoStock)
                 Spacer(modifier = Modifier.height(24.dp))
             }
-            QuickActionsSection(onVerInventario = onVerInventario, onVerReportes = onVerReportes)
+          QuickActionsSection(
+              onVerInventario = onVerInventario,
+              onRegistrarVenta = onRegistrarVenta,
+              onVerReportes = onVerReportes
+          ) 
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -561,7 +575,11 @@ fun LowStockSection(productos: List<Producto>) {
 }
 
 @Composable
-fun QuickActionsSection(onVerInventario: () -> Unit, onVerReportes: () -> Unit) {
+fun QuickActionsSection(
+    onVerInventario: () -> Unit,
+    onRegistrarVenta: () -> Unit,
+    onVerReportes: () -> Unit
+) {
     Column {
         Text("Acciones rápidas", fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
             color = Color(0xFF333333))
@@ -573,7 +591,7 @@ fun QuickActionsSection(onVerInventario: () -> Unit, onVerReportes: () -> Unit) 
             backgroundColor = Color(0xFF2962FF),
             contentColor = Color.White,
             showArrow = true,
-            onClick = {}
+            onClick = onRegistrarVenta
         )
         Spacer(modifier = Modifier.height(12.dp))
         ActionButton(
@@ -1176,6 +1194,10 @@ fun FieldWithLabel(label: String, content: @Composable () -> Unit) {
 @Composable
 fun HomeScreenPreview() {
     SmartShopTheme {
-        HomeScreen(onVerInventario = {}, onVerReportes = {})
+        HomeScreen(
+            onVerInventario = {},
+            onRegistrarVenta = {},
+            onVerReportes = {}
+        )
     }
 }

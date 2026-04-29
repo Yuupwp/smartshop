@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.gms.google.services)
 }
 
 android {
@@ -57,6 +58,8 @@ dependencies {
     implementation(libs.androidx.compose.icons.extended)
     // esta linea permite que funcione el escanear de codigos de barras
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

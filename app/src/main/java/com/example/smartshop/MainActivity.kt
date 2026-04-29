@@ -1,5 +1,7 @@
 package com.example.smartshop
 
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -80,29 +82,104 @@ data class Producto(
 
 
 enum class Pantalla {
-    HOME, INVENTARIO, VENTA, AGREGAR_PRODUCTO, REPORTES
+    LOGIN, REGISTRO, HOME, INVENTARIO, VENTA, AGREGAR_PRODUCTO, REPORTES
 }
 
 @Composable
 fun AppNavigation() {
-    var pantallaActual by remember { mutableStateOf(Pantalla.HOME) }
+    val context = LocalContext.current
+
+    // 2. Inicializamos Firebase Auth y Firestore
+    val auth = remember { FirebaseAuth.getInstance() }
+    val db = remember { FirebaseFirestore.getInstance() }
+
+    // 3. Verificamos si ya hay un usuario logueado para saltarnos el Login
+    var pantallaActual by remember {
+        mutableStateOf(if (auth.currentUser != null) Pantalla.HOME else Pantalla.LOGIN)
+    }
 
     when (pantallaActual) {
+        Pantalla.LOGIN -> LoginScreen(
+            onLoginClick = { email, password ->
+                if (email.isNotEmpty() && password.isNotEmpty()) {
+                    // Lógica de inicio de sesión de Firebase
+                    auth.signInWithEmailAndPassword(email, password)
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                pantallaActual = Pantalla.HOME
+                            } else {
+                                Toast.makeText(context, "Error: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                } else {
+                    Toast.makeText(context, "Por favor, ingresa tu correo y contraseña", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onCreateAccountClick = { pantallaActual = Pantalla.REGISTRO }
+        )
+
+        Pantalla.REGISTRO -> RegistroScreen(
+            onBackClick = { pantallaActual = Pantalla.LOGIN },
+            onCrearCuentaClick = { correo, password, nombreResponsable, nombreTienda, telefono, direccion ->
+                if (correo.isNotEmpty() && password.isNotEmpty() && nombreResponsable.isNotEmpty()) {
+                    // 1. Crear usuario en Firebase Auth
+                    auth.createUserWithEmailAndPassword(correo, password)
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val userId = auth.currentUser?.uid ?: ""
+
+                                // 2. Guardar los datos extra de la tienda en Firestore
+                                val tiendaData = hashMapOf(
+                                    "nombreResponsable" to nombreResponsable,
+                                    "nombreTienda" to nombreTienda,
+                                    "telefono" to telefono,
+                                    "direccion" to direccion,
+                                    "correo" to correo,
+                                    "fechaRegistro" to System.currentTimeMillis()
+                                )
+
+                                db.collection("tiendas").document(userId).set(tiendaData)
+                                    .addOnSuccessListener {
+                                        Toast.makeText(context, "¡Tienda registrada con éxito!", Toast.LENGTH_SHORT).show()
+                                        pantallaActual = Pantalla.HOME
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Toast.makeText(context, "Error al guardar datos: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                            } else {
+                                Toast.makeText(context, "Error al crear cuenta: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                } else {
+                    Toast.makeText(context, "Llena todos los campos obligatorios", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onLoginClick = { pantallaActual = Pantalla.LOGIN }
+        )
+
         Pantalla.HOME -> HomeScreen(
             onVerInventario = { pantallaActual = Pantalla.INVENTARIO },
             onRegistrarVenta = { pantallaActual = Pantalla.VENTA },
-            onVerReportes = { pantallaActual = Pantalla.REPORTES }
+            onVerReportes = { pantallaActual = Pantalla.REPORTES },
+            onLogout = {
+                auth.signOut() // Le dice a Firebase que cierre la sesión
+                pantallaActual = Pantalla.LOGIN // Te regresa a la pantalla de Login
+            }
         )
+
         Pantalla.INVENTARIO -> InventarioScreen(
             onBack = { pantallaActual = Pantalla.HOME },
             onAgregarProducto = { pantallaActual = Pantalla.AGREGAR_PRODUCTO }
         )
+
         Pantalla.AGREGAR_PRODUCTO -> AgregarProductoScreen(
             onBack = { pantallaActual = Pantalla.INVENTARIO }
         )
+
         Pantalla.REPORTES -> ReportesScreen(
             onBack = { pantallaActual = Pantalla.HOME }
         )
+
         Pantalla.VENTA -> NuevaVentaScreen(
             onBack = { pantallaActual = Pantalla.HOME }
         )
@@ -114,10 +191,36 @@ fun AppNavigation() {
 fun HomeScreen(
     onVerInventario: () -> Unit,
     onRegistrarVenta: () -> Unit,
-    onVerReportes: () -> Unit
+    onVerReportes: () -> Unit,
+    onLogout: () -> Unit // Agregamos este parámetro
 ) {
     val context = LocalContext.current
     val repo = remember { SmartShopRepository(context) }
+
+    // Instancias de Firebase
+    val auth = remember { FirebaseAuth.getInstance() }
+    val db = remember { FirebaseFirestore.getInstance() }
+
+    // Estado para guardar el nombre de la tienda, inicia diciendo "Cargando..."
+    var nombreTienda by remember { mutableStateOf("Cargando...") }
+
+    // Este bloque va a Firebase a buscar el nombre de la tienda de este usuario
+    LaunchedEffect(Unit) {
+        val userId = auth.currentUser?.uid
+        if (userId != null) {
+            db.collection("tiendas").document(userId).get()
+                .addOnSuccessListener { document ->
+                    if (document != null && document.exists()) {
+                        nombreTienda = document.getString("nombreTienda") ?: "Mi Tienda"
+                    } else {
+                        nombreTienda = "Mi Tienda"
+                    }
+                }
+                .addOnFailureListener {
+                    nombreTienda = "SmartShop" // Si falla el internet, muestra un nombre por defecto
+                }
+        }
+    }
 
     val calendar = Calendar.getInstance()
     calendar.set(Calendar.HOUR_OF_DAY, 0)
@@ -154,7 +257,8 @@ fun HomeScreen(
             .background(Color(0xFFF2F6FB))
             .padding(20.dp)
     ) {
-        HeaderSection()
+        // Pasamos el nombre y la función al encabezado
+        HeaderSection(nombreTienda = nombreTienda, onLogout = onLogout)
 
         Spacer(modifier = Modifier.height(28.dp))
 
@@ -589,29 +693,50 @@ fun ProductoDialog(
 
 
 @Composable
-fun HeaderSection() {
+fun HeaderSection(nombreTienda: String, onLogout: () -> Unit) {
     val dateFormat = SimpleDateFormat(
         "EEEE, d 'de' MMMM 'de' yyyy",
         Locale("es", "ES")
     )
     val currentDate = dateFormat.format(Date())
 
-    Column {
-        Text(
-            text = "SmartShop",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF152238)
-        )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = nombreTienda,
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF152238),
+                maxLines = 1 // Evita que se rompa el diseño si el nombre es muy largo
+            )
 
-        Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-        Text(
-            text = currentDate,
-            fontSize = 16.sp,
-            color = Color(0xFF7A8499),
-            fontWeight = FontWeight.Medium
-        )
+            Text(
+                text = currentDate,
+                fontSize = 16.sp,
+                color = Color(0xFF7A8499),
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        // Botón de cerrar sesión
+        IconButton(
+            onClick = onLogout,
+            modifier = Modifier
+                .size(48.dp)
+                .background(Color.White, RoundedCornerShape(14.dp))
+        ) {
+            Icon(
+                imageVector = Icons.Default.ExitToApp,
+                contentDescription = "Cerrar sesión",
+                tint = Color(0xFFE53935)
+            )
+        }
     }
 }
 
@@ -1438,7 +1563,8 @@ fun HomeScreenPreview() {
         HomeScreen(
             onVerInventario = {},
             onRegistrarVenta = {},
-            onVerReportes = {}
+            onVerReportes = {},
+            onLogout = {} // <- Solo tienes que agregar esta línea vacía
         )
     }
 }

@@ -1,56 +1,38 @@
 package com.example.smartshop
 
 import android.Manifest
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.platform.LocalContext
-import com.example.smartshop.database.SmartShopRepository
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.viewinterop.AndroidView
-
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.example.smartshop.database.SmartShopRepository
 import com.google.accompanist.permissions.*
 
-import com.google.accompanist.permissions.rememberPermissionState
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-
+val AzulPrincipal = Color(0xFF2962FF)
+val AzulOscuro = Color(0xFF17233D)
+val FondoApp = Color(0xFFF3F6FB)
+val TextoGris = Color(0xFF7A8499)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -61,18 +43,13 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
     var mostrarCamara by remember { mutableStateOf(false) }
     var mostrarLector by remember { mutableStateOf(false) }
 
-    val productos = remember {
-        mutableStateListOf<ProductoVenta>()
-    }
+    val productos = remember { mutableStateListOf<ProductoVenta>() }
 
     LaunchedEffect(Unit) {
-
         val productosDB = repo.obtenerProductos()
-
         productos.clear()
 
         productosDB.forEach {
-
             productos.add(
                 ProductoVenta(
                     nombre = it["nombre"] as String,
@@ -92,98 +69,146 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
     )
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Nueva venta", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Regresar")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF2962FF),
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
-            )
-        }
-
+        containerColor = FondoApp
     ) { paddingValues ->
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
+                .padding(20.dp)
         ) {
 
-            MetodoEscaneo(
-                onCamaraClick = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.Default.ArrowBack,
+                        contentDescription = "Regresar",
+                        tint = Color(0xFF2A3950),
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
 
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Text(
+                    text = "Nueva venta",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AzulOscuro
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            ResumenVenta(total, cantidadProductos)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            MetodoEscaneoModerno(
+                onCamaraClick = {
                     if (cameraPermissionState.status.isGranted) {
                         mostrarCamara = true
                     } else {
                         cameraPermissionState.launchPermissionRequest()
                     }
-
                 },
                 onLectorClick = { mostrarLector = true }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            TarjetaTotal(total, cantidadProductos)
+            BuscadorModerno()
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Buscador()
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            LazyColumn(
-                modifier = Modifier.weight(1f)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(4.dp)
             ) {
-                items(productos) { producto ->
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "Productos disponibles",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AzulOscuro
+                    )
 
-                    ProductoItem(producto) {
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                        if (producto.stock > 0) {
-                            producto.stock--
-                            total += producto.precio
-                            cantidadProductos++
+                    LazyColumn {
+                        items(productos) { producto ->
+                            ProductoItemModerno(producto) {
+                                if (producto.stock > 0) {
+                                    producto.stock--
+                                    total += producto.precio
+                                    cantidadProductos++
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
                         }
                     }
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
             Button(
                 onClick = { },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(55.dp),
-                enabled = cantidadProductos > 0
+                    .height(65.dp),
+                enabled = cantidadProductos > 0,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2A3950),
+                    disabledContainerColor = Color(0xFFB7C7F5)
+                )
             ) {
-                Text("Confirmar venta - $$total")
+                Icon(Icons.Default.ShoppingCart, contentDescription = null)
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Text(
+                    text = "Confirmar venta - $$total",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                Icon(Icons.Default.ArrowForward, contentDescription = null)
             }
         }
     }
 
     if (mostrarCamara) {
-
         ModalBottomSheet(
             onDismissRequest = { mostrarCamara = false }
         ) {
-
             Column(
                 modifier = Modifier.padding(20.dp)
             ) {
-
                 Text(
                     "Escanear código de barras",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
+                    fontSize = 22.sp,
+                    color = AzulOscuro
                 )
 
-                Text("Usando cámara del dispositivo")
+                Text(
+                    "Usando cámara del dispositivo",
+                    color = TextoGris
+                )
 
                 Spacer(modifier = Modifier.height(20.dp))
 
@@ -195,9 +220,12 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
                     onClick = { },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(55.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2A3950)
+                    )
                 ) {
-
                     Icon(Icons.Default.CameraAlt, null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Iniciar escaneo")
@@ -207,23 +235,25 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
             }
         }
     }
-    if (mostrarLector) {
 
+    if (mostrarLector) {
         ModalBottomSheet(
             onDismissRequest = { mostrarLector = false }
         ) {
-
             Column(
                 modifier = Modifier.padding(20.dp)
             ) {
-
                 Text(
                     "Escanear código de barras",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
+                    fontSize = 22.sp,
+                    color = AzulOscuro
                 )
 
-                Text("Usando lector externo")
+                Text(
+                    "Usando lector externo",
+                    color = TextoGris
+                )
 
                 Spacer(modifier = Modifier.height(20.dp))
 
@@ -233,27 +263,30 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
                         .border(
                             1.dp,
                             Color.LightGray,
-                            RoundedCornerShape(12.dp)
+                            RoundedCornerShape(16.dp)
                         )
                         .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-
                     Icon(
                         Icons.Default.QrCodeScanner,
                         contentDescription = null,
-                        tint = Color.Blue,
-                        modifier = Modifier.size(40.dp)
+                        tint = Color(0xFF2A3950),
+                        modifier = Modifier.size(45.dp)
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Text("Lector externo listo")
+                    Text(
+                        "Lector externo listo",
+                        fontWeight = FontWeight.Bold,
+                        color = AzulOscuro
+                    )
 
                     Text(
                         "Escanee el código con su lector Bluetooth o USB",
                         fontSize = 12.sp,
-                        color = Color.Gray
+                        color = TextoGris
                     )
 
                     Spacer(modifier = Modifier.height(15.dp))
@@ -261,7 +294,8 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
                     OutlinedTextField(
                         value = "",
                         onValueChange = {},
-                        placeholder = { Text("Código aparecerá aquí...") }
+                        placeholder = { Text("Código aparecerá aquí...") },
+                        shape = RoundedCornerShape(14.dp)
                     )
                 }
 
@@ -269,7 +303,8 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
 
                 Button(
                     onClick = { },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("Confirmar código")
                 }
@@ -279,7 +314,6 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
         }
     }
 }
-
 
 class ProductoVenta(
     val nombre: String,
@@ -291,90 +325,58 @@ class ProductoVenta(
 }
 
 @Composable
-fun MetodoEscaneo(
-    onCamaraClick: () -> Unit,
-    onLectorClick: () -> Unit
-) {
-
-    var metodoActivo by remember { mutableStateOf("camara") }
-
+fun ResumenVenta(total: Int, cantidad: Int) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color(0xFFE9EAEC)
-        )
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
-
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
-
             Text(
-                text = "Método de escaneo activo:",
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp
+                text = "Resumen de la venta",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = AzulOscuro
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
             Row(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-
-                Button(
-                    onClick = {
-                        metodoActivo = "camara"
-                        onCamaraClick()
-                    },
+                Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(45.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor =
-                            if (metodoActivo == "camara")
-                                Color(0xFF2962FF)
-                            else
-                                Color.LightGray
-                    )
+                        .size(70.dp)
+                        .background(Color(0xFFE8F8EF), RoundedCornerShape(35.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
-
                     Icon(
-                        Icons.Default.CameraAlt,
-                        contentDescription = "Camara",
-                        modifier = Modifier.padding(end = 6.dp)
+                        Icons.Default.TrendingUp,
+                        contentDescription = null,
+                        tint = Color(0xFF35C76F),
+                        modifier = Modifier.size(32.dp)
                     )
-
-                    Text("Cámara")
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(18.dp))
 
-                Button(
-                    onClick = {
-                        metodoActivo = "lector"
-                        onLectorClick()
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(45.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor =
-                            if (metodoActivo == "lector")
-                                Color(0xFF2962FF)
-                            else
-                                Color.LightGray
-                    )
-                ) {
-
-                    Icon(
-                        Icons.Default.QrCodeScanner,
-                        contentDescription = "Lector"
+                Column {
+                    Text(
+                        text = "$$total",
+                        fontSize = 38.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AzulOscuro
                     )
 
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Text("Lector")
+                    Text(
+                        text = "Total a pagar",
+                        fontSize = 18.sp,
+                        color = TextoGris
+                    )
                 }
             }
         }
@@ -382,73 +384,191 @@ fun MetodoEscaneo(
 }
 
 @Composable
-fun TarjetaTotal(total: Int, cantidad: Int) {
+fun MetodoEscaneoModerno(
+    onCamaraClick: () -> Unit,
+    onLectorClick: () -> Unit
+) {
+    var metodoActivo by remember { mutableStateOf("camara") }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF2962FF)
-        )
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
-
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
-
             Text(
-                text = "Total a pagar",
-                color = Color.White
-            )
-
-            Text(
-                text = "$$total",
-                fontSize = 28.sp,
+                text = "Método de escaneo",
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = AzulOscuro
             )
 
-            Text(
-                text = "$cantidad productos en el carrito",
-                color = Color.White
-            )
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        metodoActivo = "camara"
+                        onCamaraClick()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(70.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(0.dp, Color.Transparent),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor =
+                            if (metodoActivo == "camara") Color(0xFF94A8C7)
+                            else Color(0xFFE8E8E8),
+                        contentColor =
+                            if (metodoActivo == "camara") Color(0xFF2A3950)
+                            else TextoGris
+                    )
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Cámara", fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        metodoActivo = "lector"
+                        onLectorClick()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(70.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(0.dp, Color.Transparent),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor =
+                            if (metodoActivo == "lector") Color(0xFF94A8C7)
+                            else Color(0xFFE8E8E8),
+                        contentColor =
+                            if (metodoActivo == "lector") Color(0xFF2A3950)
+                            else TextoGris
+                    )
+                ) {
+                    Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Lector", fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
 
 @Composable
-fun Buscador() {
-    OutlinedTextField(
-        value = "",
-        onValueChange = {},
-        placeholder = { Text("Buscar producto...") }
-    )
+fun BuscadorModerno() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(4.dp)
+    ) {
+        OutlinedTextField(
+            value = "",
+            onValueChange = {},
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            placeholder = {
+                Text(
+                    "Buscar producto...",
+                    color = TextoGris
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = null,
+                    tint = TextoGris
+                )
+            },
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true
+        )
+    }
 }
 
 @Composable
-fun ProductoItem(producto: ProductoVenta, onAgregar: () -> Unit) {
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+fun ProductoItemModerno(producto: ProductoVenta, onAgregar: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .background(Color(0xFFEAF0FF), RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Inventory2,
+                    contentDescription = null,
+                    tint = Color(0xFF2A3950)
+                )
+            }
 
-        Column {
-            Text(producto.nombre)
-            Text("$${producto.precio} - Stock ${producto.stock}")
-            Text(producto.codigo)
-        }
+            Spacer(modifier = Modifier.width(16.dp))
 
-        IconButton(onClick = onAgregar) {
-            Icon(Icons.Default.Add, contentDescription = "Agregar")
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = producto.nombre,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AzulOscuro
+                )
+
+                Row {
+                    Text(
+                        text = "$${producto.precio}",
+                        color = Color(0xFF2A3950),
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Text(
+                        text = "  •  Stock: ${producto.stock}",
+                        color = TextoGris
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onAgregar,
+                modifier = Modifier
+                    .size(50.dp)
+                    .background(Color(0xFF94A8C7), RoundedCornerShape(25.dp))
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Agregar",
+                    tint = Color(0xFF2A3950)
+                )
+            }
         }
     }
 }
 
 @Composable
 fun CameraPreview() {
-
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -459,7 +579,6 @@ fun CameraPreview() {
             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
             cameraProviderFuture.addListener({
-
                 val cameraProvider = cameraProviderFuture.get()
 
                 val preview = Preview.Builder().build()

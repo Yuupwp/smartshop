@@ -23,6 +23,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +35,11 @@ fun LoginScreen(
     // Estados para guardar lo que el usuario escribe
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    // Variables para recuperar contraseña
+    var showResetDialog by remember { mutableStateOf(false) }
+    var emailReset by remember { mutableStateOf("") }
+    val auth = remember { FirebaseAuth.getInstance() }
+    val context = LocalContext.current
 
     // Colores basados en tu diseño
     val colorFondo = Color(0xFFF8F9FA) // Gris muy clarito
@@ -154,7 +161,7 @@ fun LoginScreen(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             color = colorAzulClaro,
-                            modifier = Modifier.clickable { /* TODO: Recuperar contraseña */ }
+                            modifier = Modifier.clickable { showResetDialog = true }
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -222,6 +229,63 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Crear cuenta nueva", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
+        }
+
+        if (showResetDialog) {
+            AlertDialog(
+                onDismissRequest = { showResetDialog = false },
+                title = {
+                    Text(text = "Recuperar contraseña", fontWeight = FontWeight.Bold, color = colorPrincipal)
+                },
+                text = {
+                    Column {
+                        Text(text = "Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.", color = colorTextoSecundario)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = emailReset,
+                            onValueChange = { emailReset = it },
+                            label = { Text("Correo electrónico") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = colorPrincipal,
+                                unfocusedBorderColor = Color(0xFFE8ECF2)
+                            )
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (emailReset.isNotEmpty()) {
+                                auth.sendPasswordResetEmail(emailReset)
+                                    .addOnCompleteListener { task ->
+                                        if (task.isSuccessful) {
+                                            android.widget.Toast.makeText(context, "Correo enviado. Revisa tu bandeja de entrada.", android.widget.Toast.LENGTH_LONG).show()
+                                            showResetDialog = false
+                                            emailReset = ""
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Error: ${task.exception?.message}", android.widget.Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                            } else {
+                                android.widget.Toast.makeText(context, "Por favor ingresa un correo", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorPrincipal)
+                    ) {
+                        Text("Enviar enlace")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showResetDialog = false }) {
+                        Text("Cancelar", color = colorTextoSecundario)
+                    }
+                },
+                containerColor = Color.White
+            )
         }
     }
 }

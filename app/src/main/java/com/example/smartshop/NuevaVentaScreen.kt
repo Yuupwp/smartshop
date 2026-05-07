@@ -39,25 +39,37 @@ val TextoGris = Color(0xFF7A8499)
 fun NuevaVentaScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val repo = remember { SmartShopRepository(context) }
-
     var mostrarCamara by remember { mutableStateOf(false) }
     var mostrarLector by remember { mutableStateOf(false) }
-
+    var codigoLector by remember { mutableStateOf("") }
+    var mostrarTicket by remember { mutableStateOf(false) }
+    var ticketDetalle by remember { mutableStateOf("") }
+    var ticketTotal by remember { mutableStateOf(0) }
     val productos = remember { mutableStateListOf<ProductoVenta>() }
 
-    LaunchedEffect(Unit) {
-        val productosDB = repo.obtenerProductos()
-        productos.clear()
+    val auth = remember { com.google.firebase.auth.FirebaseAuth.getInstance() }
+    val db = remember { com.google.firebase.firestore.FirebaseFirestore.getInstance() }
+    val userId = auth.currentUser?.uid
 
-        productosDB.forEach {
-            productos.add(
-                ProductoVenta(
-                    nombre = it["nombre"] as String,
-                    precio = (it["precio"] as Double).toInt(),
-                    stockInicial = it["stock"] as Int,
-                    codigo = (it["id"] as Int).toString()
-                )
-            )
+    // Cargar productos desde Firestore
+    LaunchedEffect(userId) {
+        if (userId != null) {
+            db.collection("tiendas").document(userId).collection("productos")
+                .get() // Usamos get() en vez de snapshot para que la lista no brinque mientras vendes
+                .addOnSuccessListener { snapshot ->
+                    productos.clear()
+                    snapshot.documents.forEach { doc ->
+                        productos.add(
+                            ProductoVenta(
+                                nombre = doc.getString("nombre") ?: "",
+                                precio = doc.getDouble("precio")?.toInt() ?: 0,
+                                stockInicial = doc.getLong("stock")?.toInt() ?: 0,
+                                codigo = doc.id, // Guardamos el ID larguísimo de Firebase aquí
+                                codigoBarras = doc.getString("codigoBarras") ?: ""
+                            )
+                        )
+                    }
+                }
         }
     }
 
@@ -67,6 +79,32 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
     val cameraPermissionState = rememberPermissionState(
         permission = Manifest.permission.CAMERA
     )
+
+    // Configuración del Escáner de Google (ML Kit)
+    val scannerOptions = remember {
+        com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS)
+            .enableAutoZoom()
+            .build()
+    }
+    val scanner = remember { com.google.mlkit.vision.codescanner.GmsBarcodeScanning.getClient(context, scannerOptions) }
+
+    // Función Cerebro: Busca el código y hace la matemática
+    val procesarCodigoEscaneado = { codigoBuscado: String ->
+        val prod = productos.find { it.codigoBarras == codigoBuscado }
+        if (prod != null) {
+            if (prod.stock > 0) {
+                prod.stock--
+                total += prod.precio
+                cantidadProductos++
+                android.widget.Toast.makeText(context, "Agregado: ${prod.nombre}", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                android.widget.Toast.makeText(context, "¡Sin stock de ${prod.nombre}!", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            android.widget.Toast.makeText(context, "Producto no encontrado", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         containerColor = FondoApp
@@ -109,11 +147,15 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
 
             MetodoEscaneoModerno(
                 onCamaraClick = {
-                    if (cameraPermissionState.status.isGranted) {
-                        mostrarCamara = true
-                    } else {
-                        cameraPermissionState.launchPermissionRequest()
-                    }
+                    // Abrimos el escáner de Google directo
+                    scanner.startScan()
+                        .addOnSuccessListener { barcode ->
+                            val rawValue = barcode.rawValue ?: ""
+                            procesarCodigoEscaneado(rawValue)
+                        }
+                        .addOnFailureListener { e ->
+                            android.widget.Toast.makeText(context, "Error cámara: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                        }
                 },
                 onLectorClick = { mostrarLector = true }
             )
@@ -163,7 +205,58 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = { },
+                onClick = {
+                    if (userId != null) {
+                        // Creamos un "Lote" de operaciones (Batch)
+                        val batch = db.batch()
+
+                        // 1. Preparamos el registro de la nueva venta
+                        val nuevaVentaRef = db.collection("tiendas").document(userId)
+                            .collection("ventas").document() // Documento vacío con ID automático
+
+                        val ventaData = hashMapOf(
+                            "total" to total.toDouble(),
+                            "fecha" to System.currentTimeMillis(),
+                            "cantidadProductos" to cantidadProductos
+                        )
+                        batch.set(nuevaVentaRef, ventaData) // Agregamos la creación al lote
+
+                        // 2. Preparamos los descuentos de stock
+                        // Filtramos solo los productos a los que les dimos click en "+"
+                        productos.filter { it.stock < it.stockInicial }.forEach { prod ->
+                            val cantidadVendida = prod.stockInicial - prod.stock
+
+                            val prodRef = db.collection("tiendas").document(userId)
+                                .collection("productos").document(prod.codigo)
+
+                            // Le decimos a Firebase: "Réscale esta cantidad al stock actual"
+                            batch.update(
+                                prodRef,
+                                "stock",
+                                com.google.firebase.firestore.FieldValue.increment(-cantidadVendida.toLong())
+                            )
+                        }
+
+                        // 3. ¡Ejecutamos todo el lote de un jalón!
+                        batch.commit()
+                            .addOnSuccessListener {
+                                // En lugar de regresarnos, preparamos el texto del ticket
+                                val textoTicket = productos.filter { it.stock < it.stockInicial }
+                                    .joinToString(separator = "\n") { prod ->
+                                        val cant = prod.stockInicial - prod.stock
+                                        val subtotal = cant * prod.precio
+                                        "$cant x ${prod.nombre} - $$subtotal"
+                                    }
+
+                                ticketDetalle = textoTicket
+                                ticketTotal = total
+                                mostrarTicket = true // Esto hace que salte la ventana
+                            }
+                            .addOnFailureListener { e ->
+                                android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(65.dp),
@@ -240,71 +333,35 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
         ModalBottomSheet(
             onDismissRequest = { mostrarLector = false }
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp)
-            ) {
-                Text(
-                    "Escanear código de barras",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
-                    color = AzulOscuro
-                )
-
-                Text(
-                    "Usando lector externo",
-                    color = TextoGris
-                )
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text("Escanear código de barras", fontWeight = FontWeight.Bold, fontSize = 22.sp, color = AzulOscuro)
+                Text("Usando lector externo", color = TextoGris)
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(
-                            1.dp,
-                            Color.LightGray,
-                            RoundedCornerShape(16.dp)
-                        )
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        Icons.Default.QrCodeScanner,
-                        contentDescription = null,
-                        tint = Color(0xFF2A3950),
-                        modifier = Modifier.size(45.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        "Lector externo listo",
-                        fontWeight = FontWeight.Bold,
-                        color = AzulOscuro
-                    )
-
-                    Text(
-                        "Escanee el código con su lector Bluetooth o USB",
-                        fontSize = 12.sp,
-                        color = TextoGris
-                    )
-
-                    Spacer(modifier = Modifier.height(15.dp))
-
-                    OutlinedTextField(
-                        value = "",
-                        onValueChange = {},
-                        placeholder = { Text("Código aparecerá aquí...") },
-                        shape = RoundedCornerShape(14.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Button(
-                    onClick = { },
+                // CAMPO DE TEXTO
+                OutlinedTextField(
+                    value = codigoLector,
+                    onValueChange = { codigoLector = it },
+                    placeholder = { Text("Código aparecerá aquí...") }, // Las llaves { } son vitales aquí
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // BOTÓN DE CONFIRMACIÓN
+                Button(
+                    onClick = {
+                        if (codigoLector.isNotBlank()) {
+                            procesarCodigoEscaneado(codigoLector.trim())
+                            codigoLector = "" // Limpia el campo para el siguiente producto
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(55.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AzulOscuro)
                 ) {
                     Text("Confirmar código")
                 }
@@ -313,13 +370,58 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
             }
         }
     }
+    // --- VENTANA DEL TICKET DIGITAL ---
+    if (mostrarTicket) {
+        AlertDialog(
+            onDismissRequest = { /* Lo dejamos vacío para obligarlo a picarle a Cerrar */ },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF35C76F))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("¡Venta Exitosa!", fontWeight = FontWeight.Bold, color = AzulOscuro)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().background(Color(0xFFF8F9FA), RoundedCornerShape(8.dp)).padding(16.dp)
+                ) {
+                    Text("--- TICKET DE COMPRA ---", fontWeight = FontWeight.Bold, color = TextoGris, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(ticketDetalle, fontSize = 16.sp, color = AzulOscuro)
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Divider(color = Color.LightGray)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("TOTAL:", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = AzulOscuro)
+                        Text("$$ticketTotal", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = AzulPrincipal)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        mostrarTicket = false
+                        onBack() // AHORA SÍ nos regresamos al inicio
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AzulPrincipal)
+                ) {
+                    Text("Cerrar y Volver")
+                }
+            },
+            containerColor = Color.White
+        )
+    }
 }
 
 class ProductoVenta(
     val nombre: String,
     val precio: Int,
-    stockInicial: Int,
-    val codigo: String
+    val stockInicial: Int,
+    val codigo: String,
+    val codigoBarras: String = ""
 ) {
     var stock by mutableStateOf(stockInicial)
 }

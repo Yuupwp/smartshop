@@ -73,7 +73,7 @@ fun SmartShopTheme(content: @Composable () -> Unit) {
 
 
 data class Producto(
-    val id: Int = 0,
+    val id: String = "",
     val nombre: String,
     val precio: Double,
     val stock: Int,
@@ -192,64 +192,89 @@ fun HomeScreen(
     onVerInventario: () -> Unit,
     onRegistrarVenta: () -> Unit,
     onVerReportes: () -> Unit,
-    onLogout: () -> Unit // Agregamos este parámetro
+    onLogout: () -> Unit
 ) {
     val context = LocalContext.current
-    val repo = remember { SmartShopRepository(context) }
 
     // Instancias de Firebase
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
+    val userId = auth.currentUser?.uid
 
-    // Estado para guardar el nombre de la tienda, inicia diciendo "Cargando..."
+    // Estados de la pantalla (Empiezan vacíos o en cero)
     var nombreTienda by remember { mutableStateOf("Cargando...") }
+    var totalVentas by remember { mutableDoubleStateOf(0.0) }
+    var cantVentas by remember { mutableIntStateOf(0) }
+    var productosConPocoStock by remember { mutableStateOf<List<Producto>>(emptyList()) }
 
-    // Este bloque va a Firebase a buscar el nombre de la tienda de este usuario
-    LaunchedEffect(Unit) {
-        val userId = auth.currentUser?.uid
+    // 1. Obtener el nombre de la tienda
+    LaunchedEffect(userId) {
         if (userId != null) {
             db.collection("tiendas").document(userId).get()
                 .addOnSuccessListener { document ->
-                    if (document != null && document.exists()) {
-                        nombreTienda = document.getString("nombreTienda") ?: "Mi Tienda"
-                    } else {
-                        nombreTienda = "Mi Tienda"
-                    }
+                    nombreTienda = document.getString("nombreTienda") ?: "Mi Tienda"
                 }
                 .addOnFailureListener {
-                    nombreTienda = "SmartShop" // Si falla el internet, muestra un nombre por defecto
+                    nombreTienda = "SmartShop"
                 }
         }
     }
 
-    val calendar = Calendar.getInstance()
-    calendar.set(Calendar.HOUR_OF_DAY, 0)
-    calendar.set(Calendar.MINUTE, 0)
-    calendar.set(Calendar.SECOND, 0)
-    calendar.set(Calendar.MILLISECOND, 0)
+    // 2. Escuchar productos con poco stock (TIEMPO REAL)
+    LaunchedEffect(userId) {
+        if (userId != null) {
+            db.collection("tiendas").document(userId).collection("productos")
+                .addSnapshotListener { snapshot, error ->
+                    // Si hay error o no hay datos, no hacemos nada
+                    if (error == null && snapshot != null) {
+                        val bajoStock = snapshot.documents.mapNotNull { doc ->
+                            val stock = doc.getLong("stock")?.toInt() ?: 0
+                            val stockMin = doc.getLong("stock_minimo")?.toInt() ?: 5
 
-    val inicioDia = calendar.timeInMillis
-    val finDia = inicioDia + 86_400_000L
-
-    val totalVentas by remember { mutableDoubleStateOf(repo.totalVentasDelDia(inicioDia, finDia)) }
-    val cantVentas by remember { mutableIntStateOf(repo.contarVentasDelDia(inicioDia, finDia)) }
-
-    val productosConPocoStock by remember {
-        mutableStateOf(
-            repo.obtenerProductos()
-                .filter { (it["stock"] as Int) <= (it["stock_minimo"] as Int) }
-                .map {
-                    Producto(
-                        id = it["id"] as Int,
-                        nombre = it["nombre"] as String,
-                        precio = it["precio"] as Double,
-                        stock = it["stock"] as Int,
-                        stockMinimo = it["stock_minimo"] as Int
-                    )
+                            // Solo agregamos a la lista si el stock es menor o igual al mínimo
+                            if (stock <= stockMin) {
+                                Producto(
+                                    id = doc.id,
+                                    nombre = doc.getString("nombre") ?: "",
+                                    precio = doc.getDouble("precio") ?: 0.0,
+                                    stock = stock,
+                                    stockMinimo = stockMin
+                                )
+                            } else null
+                        }
+                        productosConPocoStock = bajoStock
+                    }
                 }
-        )
+        }
     }
 
+    // 3. Escuchar ventas del día (TIEMPO REAL)
+    LaunchedEffect(userId) {
+        if (userId != null) {
+            // Calculamos desde las 00:00:00 de hoy
+            val calendar = Calendar.getInstance()
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            val inicioDia = calendar.timeInMillis
+
+            db.collection("tiendas").document(userId).collection("ventas")
+                .whereGreaterThanOrEqualTo("fecha", inicioDia)
+                .addSnapshotListener { snapshot, error ->
+                    if (error == null && snapshot != null) {
+                        var sumaTotal = 0.0
+                        snapshot.documents.forEach { doc ->
+                            sumaTotal += doc.getDouble("total") ?: 0.0
+                        }
+                        totalVentas = sumaTotal
+                        cantVentas = snapshot.documents.size
+                    }
+                }
+        }
+    }
+
+    // --- DISEÑO DE LA PANTALLA (Queda intacto) ---
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -257,7 +282,6 @@ fun HomeScreen(
             .background(Color(0xFFF2F6FB))
             .padding(20.dp)
     ) {
-        // Pasamos el nombre y la función al encabezado
         HeaderSection(nombreTienda = nombreTienda, onLogout = onLogout)
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -306,132 +330,82 @@ fun HomeScreen(
 @Composable
 fun InventarioScreen(onBack: () -> Unit, onAgregarProducto: () -> Unit) {
     val context = LocalContext.current
-    val repo = remember { SmartShopRepository(context) }
+    val auth = remember { FirebaseAuth.getInstance() }
+    val db = remember { FirebaseFirestore.getInstance() }
+    val userId = auth.currentUser?.uid
 
-    var productos by remember { mutableStateOf(cargarProductos(repo)) }
+    var productos by remember { mutableStateOf<List<Producto>>(emptyList()) }
     var productoAEditar by remember { mutableStateOf<Producto?>(null) }
     var productoAEliminar by remember { mutableStateOf<Producto?>(null) }
 
+    // Escuchador en tiempo real de Firebase
+    LaunchedEffect(userId) {
+        if (userId != null) {
+            db.collection("tiendas").document(userId).collection("productos")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null) return@addSnapshotListener
+
+                    val listaFirebase = snapshot.documents.map { doc ->
+                        Producto(
+                            id = doc.id,
+                            nombre = doc.getString("nombre") ?: "",
+                            precio = doc.getDouble("precio") ?: 0.0,
+                            stock = doc.getLong("stock")?.toInt() ?: 0,
+                            stockMinimo = doc.getLong("stock_minimo")?.toInt() ?: 5
+                        )
+                    }
+                    productos = listaFirebase
+                }
+        }
+    }
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFF2F6FB))
-            .padding(20.dp)
+        modifier = Modifier.fillMaxSize().background(Color(0xFFF2F6FB)).padding(20.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        // --- CABECERA ---
+        Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Regresar",
-                    tint = Color(0xFF2A3950),
-                    modifier = Modifier.size(30.dp)
-                )
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar", tint = Color(0xFF2A3950), modifier = Modifier.size(30.dp))
             }
-
             Spacer(modifier = Modifier.width(8.dp))
-
             Column {
-                Text(
-                    text = "Inventario",
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF152238)
-                )
-
-                Text(
-                    text = "${productos.size} productos registrados",
-                    fontSize = 15.sp,
-                    color = Color(0xFF7A8499),
-                    fontWeight = FontWeight.Medium
-                )
+                Text("Inventario", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color(0xFF152238))
+                Text("${productos.size} productos en la nube", fontSize = 15.sp, color = Color(0xFF7A8499), fontWeight = FontWeight.Medium)
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // --- TARJETA DE LISTA ---
         Card(
             modifier = Modifier.fillMaxSize(),
             shape = RoundedCornerShape(32.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(22.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Lista de productos",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF152238),
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    FloatingActionButton(
-                        onClick = onAgregarProducto,
-                        containerColor = Color(0xFF2A3950),
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "Agregar",
-                            tint = Color.White
-                        )
+            Column(modifier = Modifier.padding(22.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Lista de productos", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF152238), modifier = Modifier.weight(1f))
+                    FloatingActionButton(onClick = onAgregarProducto, containerColor = Color(0xFF2A3950), modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Add, contentDescription = "Agregar", tint = Color.White)
                     }
                 }
-
                 Spacer(modifier = Modifier.height(20.dp))
 
                 if (productos.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .background(
-                                        Color(0xFFEAF0FF),
-                                        RoundedCornerShape(24.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.Inventory2,
-                                    contentDescription = null,
-                                    tint = Color(0xFF2A3950),
-                                    modifier = Modifier.size(42.dp)
-                                )
+                    // DISEÑO DE INVENTARIO VACÍO
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(modifier = Modifier.size(80.dp).background(Color(0xFFEAF0FF), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Inventory2, contentDescription = null, tint = Color(0xFF2A3950), modifier = Modifier.size(42.dp))
                             }
-
                             Spacer(modifier = Modifier.height(16.dp))
-
-                            Text(
-                                text = "Sin productos aún",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF152238)
-                            )
-
-                            Text(
-                                text = "Presiona + para agregar uno",
-                                fontSize = 15.sp,
-                                color = Color(0xFF7A8499)
-                            )
+                            Text("Sin productos aún", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF152238))
+                            Text("Presiona + para agregar uno", fontSize = 15.sp, color = Color(0xFF7A8499))
                         }
                     }
                 } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(productos, key = { it.id }) { producto ->
                             ProductoCard(
                                 producto = producto,
@@ -445,15 +419,18 @@ fun InventarioScreen(onBack: () -> Unit, onAgregarProducto: () -> Unit) {
         }
     }
 
+    // --- DIÁLOGOS DE EDICIÓN Y ELIMINACIÓN DIRECTO A FIREBASE ---
     productoAEditar?.let { prod ->
         ProductoDialog(
             titulo = "Editar producto",
             productoExistente = prod,
             onDismiss = { productoAEditar = null },
             onConfirmar = { nombre, precio, stock, stockMin ->
-                repo.actualizarProducto(prod.id, nombre, precio, stock, stockMin)
-                productos = cargarProductos(repo)
-                productoAEditar = null
+                if (userId != null) {
+                    db.collection("tiendas").document(userId).collection("productos").document(prod.id)
+                        .update(mapOf("nombre" to nombre, "precio" to precio, "stock" to stock, "stock_minimo" to stockMin))
+                    productoAEditar = null
+                }
             }
         )
     }
@@ -464,38 +441,17 @@ fun InventarioScreen(onBack: () -> Unit, onAgregarProducto: () -> Unit) {
             title = { Text("Eliminar producto") },
             text = { Text("¿Deseas eliminar \"${prod.nombre}\"? Esta acción no se puede deshacer.") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        repo.eliminarProducto(prod.id)
-                        productos = cargarProductos(repo)
+                TextButton(onClick = {
+                    if (userId != null) {
+                        db.collection("tiendas").document(userId).collection("productos").document(prod.id).delete()
                         productoAEliminar = null
                     }
-                ) {
-                    Text("Eliminar", color = Color.Red)
-                }
+                }) { Text("Eliminar", color = Color.Red) }
             },
-            dismissButton = {
-                TextButton(onClick = { productoAEliminar = null }) {
-                    Text("Cancelar")
-                }
-            }
+            dismissButton = { TextButton(onClick = { productoAEliminar = null }) { Text("Cancelar") } }
         )
     }
 }
-
-
-fun cargarProductos(repo: SmartShopRepository): List<Producto> =
-    repo.obtenerProductos().map {
-        Producto(
-            id = it["id"] as Int,
-            nombre = it["nombre"] as String,
-            precio = it["precio"] as Double,
-            stock = it["stock"] as Int,
-            stockMinimo = it["stock_minimo"] as Int
-        )
-    }
-
-
 @Composable
 fun ProductoCard(
     producto: Producto,
@@ -1076,19 +1032,44 @@ fun AgregarProductoScreen(onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // En estas líneas se implementó el botón que guarda el producto en la base de datos
+                // Botón Guardar en Firebase
                 Button(
                     onClick = {
                         val p = precio.toDoubleOrNull() ?: 0.0
                         val s = stock.toIntOrNull() ?: 0
                         val sm = stockMin.toIntOrNull() ?: 5
+
                         if (nombre.isNotBlank()) {
-                            repo.insertarProducto(nombre, p, s, sm)
-                            onBack()
+                            val auth = FirebaseAuth.getInstance()
+                            val db = FirebaseFirestore.getInstance()
+                            val userId = auth.currentUser?.uid
+
+                            if (userId != null) {
+                                // Creamos el "paquete" de datos
+                                val productoMap = hashMapOf(
+                                    "nombre" to nombre.trim(),
+                                    "precio" to p,
+                                    "stock" to s,
+                                    "stock_minimo" to sm,
+                                    "codigoBarras" to codigoBarras
+                                )
+
+                                // Lo subimos a la "carpeta" de productos de este usuario
+                                db.collection("tiendas").document(userId)
+                                    .collection("productos").add(productoMap)
+                                    .addOnSuccessListener {
+                                        Toast.makeText(context, "Producto guardado en la nube", Toast.LENGTH_SHORT).show()
+                                        onBack()
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                            }
+                        } else {
+                            Toast.makeText(context, "El nombre es obligatorio", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2962FF))
                 ) {

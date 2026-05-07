@@ -1304,25 +1304,43 @@ fun AgregarProductoScreen(onBack: () -> Unit) {
     }
 }
 
-// Pantalla que muestra los Reportes de ventas
+// Pantalla que muestra los Reportes de ventas (CONECTADA A FIREBASE)
 @Composable
 fun ReportesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val repo = remember { SmartShopRepository(context) }
+    val auth = remember { FirebaseAuth.getInstance() }
+    val db = remember { FirebaseFirestore.getInstance() }
+    val userId = auth.currentUser?.uid
 
-    // Configuración para obtener las ventas del día actual
+    // Estados para guardar los totales de Firebase
+    var totalHoy by remember { mutableDoubleStateOf(0.0) }
+    var ventasHoy by remember { mutableIntStateOf(0) }
+
+    // Calcular inicio del día
     val calendar = Calendar.getInstance()
     calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0)
     calendar.set(Calendar.SECOND, 0); calendar.set(Calendar.MILLISECOND, 0)
     val inicioDia = calendar.timeInMillis
-    val finDia = inicioDia + 86_400_000L
 
-    // Obtención de datos reales de la base de datos
-    val totalHoy = repo.totalVentasDelDia(inicioDia, finDia)
-    val ventasHoy = repo.contarVentasDelDia(inicioDia, finDia)
+    // Escuchar ventas en tiempo real de Firebase
+    LaunchedEffect(userId) {
+        if (userId != null) {
+            db.collection("tiendas").document(userId).collection("ventas")
+                .whereGreaterThanOrEqualTo("fecha", inicioDia)
+                .addSnapshotListener { snapshot, error ->
+                    if (error == null && snapshot != null) {
+                        var sumaTotal = 0.0
+                        snapshot.documents.forEach { doc ->
+                            sumaTotal += doc.getDouble("total") ?: 0.0
+                        }
+                        totalHoy = sumaTotal
+                        ventasHoy = snapshot.documents.size
+                    }
+                }
+        }
+    }
+
     val promedioVenta = if (ventasHoy > 0) totalHoy / ventasHoy else 0.0
-
-    // Formateo de la fecha actual en español
     val dateFormat = SimpleDateFormat("EEEE, d 'de' MMMM 'de' yyyy", Locale("es", "ES"))
     val currentDate = dateFormat.format(Date())
 
@@ -1336,7 +1354,6 @@ fun ReportesScreen(onBack: () -> Unit) {
                     }
                 },
                 navigationIcon = {
-                    // Botón para regresar al Home
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
@@ -1354,7 +1371,6 @@ fun ReportesScreen(onBack: () -> Unit) {
                 .background(Color(0xFFF8F9FA))
                 .padding(16.dp)
         ) {
-            // Muestra la fecha seleccionada con un ícono de calendario
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.DateRange, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1362,32 +1378,20 @@ fun ReportesScreen(onBack: () -> Unit) {
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            // En esta sección se muestran las tarjetas con los totales del día
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ReportCard(
                     modifier = Modifier.weight(1f),
                     iconContent = {
-                        Icon(
-                            painter = painterResource(R.drawable.dollar),
-                            contentDescription = null,
-                            tint = Color(0xFF4CAF50),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }, // Representa la cantidad en dinero vendido
+                        Icon(painter = painterResource(R.drawable.dollar), contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(18.dp))
+                    },
                     backgroundColor = Color(0xFFE8F5E9),
                     value = "$${totalHoy.toInt()}",
                     label = "Total vendido hoy"
                 )
-                // Representa el número de ventas
                 ReportCard(
                     modifier = Modifier.weight(1f),
                     iconContent = {
-                        Icon(
-                            painter = painterResource(R.drawable.box),
-                            contentDescription = null,
-                            tint = Color(0xFF2962FF),
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Icon(painter = painterResource(R.drawable.box), contentDescription = null, tint = Color(0xFF2962FF), modifier = Modifier.size(18.dp))
                     },
                     backgroundColor = Color(0xFFE3F2FD),
                     value = "$ventasHoy",
@@ -1397,16 +1401,12 @@ fun ReportesScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Tarjeta morada que resalta el promedio por cada venta realizada
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFA020F0))
             ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Promedio por venta", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
                         Text("$${String.format(Locale.getDefault(), "%.2f", promedioVenta)}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -1416,7 +1416,6 @@ fun ReportesScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Sección de gráfico visual de ventas semanales
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -1433,16 +1432,18 @@ fun ReportesScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Tarjeta de resumen de ventas de la parte inferior
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD).copy(alpha = 0.5f))
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Text("Resumen de ventas", fontWeight = FontWeight.Bold, color = Color(0xFF1A237E))
+                    Text("Resumen de estado", fontWeight = FontWeight.Bold, color = Color(0xFF1A237E))
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("No hay ventas registradas hoy", color = Color(0xFF2962FF))
+                    Text(
+                        if (ventasHoy > 0) "¡Excelente ritmo de ventas hoy!" else "Aún no hay ventas registradas hoy",
+                        color = Color(0xFF2962FF)
+                    )
                 }
             }
         }

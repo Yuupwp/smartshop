@@ -188,14 +188,23 @@ fun NuevaVentaScreen(onBack: () -> Unit) {
 
                     LazyColumn {
                         items(productos) { producto ->
-                            ProductoItemModerno(producto) {
-                                if (producto.stock > 0) {
-                                    producto.stock--
-                                    total += producto.precio
-                                    cantidadProductos++
+                            ProductoItemModerno(
+                                producto = producto,
+                                onAgregar = {
+                                    if (producto.stock > 0) {
+                                        producto.stock--
+                                        total += producto.precio
+                                        cantidadProductos++
+                                    }
+                                },
+                                onQuitar = {
+                                    if (producto.stock < producto.stockInicial) {
+                                        producto.stock++
+                                        total -= producto.precio
+                                        cantidadProductos--
+                                    }
                                 }
-                            }
-
+                            )
                             Spacer(modifier = Modifier.height(12.dp))
                         }
                     }
@@ -601,7 +610,7 @@ fun BuscadorModerno() {
 }
 
 @Composable
-fun ProductoItemModerno(producto: ProductoVenta, onAgregar: () -> Unit) {
+fun ProductoItemModerno(producto: ProductoVenta, onAgregar: () -> Unit, onQuitar: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -620,50 +629,50 @@ fun ProductoItemModerno(producto: ProductoVenta, onAgregar: () -> Unit) {
                     .background(Color(0xFFEAF0FF), RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.Inventory2,
-                    contentDescription = null,
-                    tint = Color(0xFF2A3950)
-                )
+                Icon(Icons.Default.Inventory2, null, tint = Color(0xFF2A3950))
             }
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = producto.nombre,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AzulOscuro
-                )
-
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = producto.nombre, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AzulOscuro)
                 Row {
-                    Text(
-                        text = "$${producto.precio}",
-                        color = Color(0xFF2A3950),
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = "  •  Stock: ${producto.stock}",
-                        color = TextoGris
-                    )
+                    Text(text = "$${producto.precio}", color = Color(0xFF2A3950), fontWeight = FontWeight.Bold)
+                    Text(text = "  •  Stock: ${producto.stock}", color = TextoGris)
                 }
             }
 
+            // --- BOTÓN QUITAR (-) ---
+            IconButton(
+                onClick = onQuitar,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(if (producto.stock < producto.stockInicial) Color(0xFFFFEBEE) else Color(0xFFF5F5F5), RoundedCornerShape(20.dp)),
+                enabled = producto.stock < producto.stockInicial
+            ) {
+                Icon(
+                    Icons.Default.Remove,
+                    contentDescription = "Quitar",
+                    tint = if (producto.stock < producto.stockInicial) Color.Red else Color.Gray
+                )
+            }
+
+            // Cantidad actual en el carrito
+            Text(
+                text = "${producto.stockInicial - producto.stock}",
+                modifier = Modifier.padding(horizontal = 10.dp),
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+
+            // --- BOTÓN AGREGAR (+) ---
             IconButton(
                 onClick = onAgregar,
                 modifier = Modifier
-                    .size(50.dp)
-                    .background(Color(0xFF94A8C7), RoundedCornerShape(25.dp))
+                    .size(40.dp)
+                    .background(Color(0xFF94A8C7), RoundedCornerShape(20.dp))
             ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = "Agregar",
-                    tint = Color(0xFF2A3950)
-                )
+                Icon(Icons.Default.Add, contentDescription = "Agregar", tint = Color(0xFF2A3950))
             }
         }
     }
